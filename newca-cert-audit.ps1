@@ -118,8 +118,6 @@ if ($servers.Count -eq 0) { throw "No hosts after filtering." }
 $targetCount = $servers.Count * $PortsToCheck.Count
 
 # ── Native WhatIf handling ──────────────────────────────────────────────────
-if (-not $PSCmdlet.ShouldProcess("Audit $targetCount host:port pairs")) { return }
-
 if ($WhatIfPreference) {
     Write-Host "`nWhatIf mode — would audit these targets:" -ForegroundColor Magenta
     $servers.Hostname | ForEach-Object {
@@ -128,6 +126,8 @@ if ($WhatIfPreference) {
     }
     return
 }
+
+if (-not $PSCmdlet.ShouldProcess("Audit $targetCount host:port pairs")) { return }
 
 # ── Parallel audit ──────────────────────────────────────────────────────────
 Write-Host "`nStarting parallel audit..." -ForegroundColor Cyan
@@ -261,9 +261,9 @@ $results = $servers | ForEach-Object -Parallel {
             catch {
                 $row.Error = Get-LocalDeepestError $_.Exception
                 $row.Status = "Error"
-                if ($retry -lt $retries) {
-                    Start-Sleep -Milliseconds (300 * ($retry + 1))
-                    $retry++
+                $retry++
+                if ($retry -le $retries) {
+                    Start-Sleep -Milliseconds (300 * $retry)
                 }
             }
             finally {
