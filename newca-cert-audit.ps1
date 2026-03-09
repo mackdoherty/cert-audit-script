@@ -4,7 +4,7 @@
 <#
 .SYNOPSIS
     Parallel TLS server certificate audit using raw SslStream.
-    Built for mixed Windows/Linux environments during CA migrations.
+    Built for Windows environments during CA migrations.
 
     Features:
     - IPv4 + IPv6 discovery with hostname deduplication
@@ -117,7 +117,7 @@ if ($servers.Count -eq 0) { throw "No hosts after filtering." }
 
 $targetCount = $servers.Count * $PortsToCheck.Count
 
-# ── Native WhatIf handling ──────────────────────────────────────────────────
+# ── WhatIf: list targets and exit ───────────────────────────────────────────
 if ($WhatIfPreference) {
     Write-Host "`nWhatIf mode — would audit these targets:" -ForegroundColor Magenta
     $servers.Hostname | ForEach-Object {
@@ -194,7 +194,7 @@ $results = $servers | ForEach-Object -Parallel {
 
                 $stream = $tcp.GetStream()
 
-                # Correct delegate signature: bypass only when NOT requiring trust
+                # Null callback = real OS chain validation; bypass callback = accept any cert
                 $callback = if ($trustMode) { $null } else {
                     [System.Net.Security.RemoteCertificateValidationCallback]{
                         param($_sender,$cert,$chain,$errors)
@@ -219,10 +219,10 @@ $results = $servers | ForEach-Object -Parallel {
                 $row.ExpiryDate = $cert.NotAfter.ToString("yyyy-MM-dd")
                 $row.DaysLeft   = [math]::Round(($cert.NotAfter - (Get-Date)).TotalDays, 0)
 
-                $san = $cert.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.17' } | Select-Object -First 1
+                $san = $cert.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.17' } | Select-Object -First 1  # OID 2.5.29.17 = Subject Alternative Name
                 $row.SANs = if ($san) { $san.Format(0) -replace '\s*,\s*', ', ' -replace '\s*\r?\n\s*', '; ' } else { "None" }
 
-                # Chain
+                # Build the certificate chain and record its validity and any status flags
                 $chain = [Security.Cryptography.X509Certificates.X509Chain]::new()
                 $chain.ChainPolicy.RevocationMode = if ($revoke) {
                     [Security.Cryptography.X509Certificates.X509RevocationMode]::Online
@@ -274,7 +274,7 @@ $results = $servers | ForEach-Object -Parallel {
 
         $local += [PSCustomObject]$row
 
-        # Progress
+        # Update shared progress counter under lock and report to Write-Progress
         [System.Threading.Monitor]::Enter($using:sync)
         try {
             $p = $using:progress
